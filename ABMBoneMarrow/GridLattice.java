@@ -12,36 +12,73 @@ import HAL.Tools.FileIO;
 
 import java.io.File;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Date;
+import java.util.stream.IntStream;
 
 import static ABMBoneMarrow.GridLattice.*;
 import static HAL.Util.*;
 
-// TODO Implement Enums for the agents
 //////////////
 //GRID CLASS//
 //////////////
 
+// TODO add enum instead of record for the cell types
+record CellType(int rgbColor, int index) {
+}
+
+enum Cell {
+    ACTIVE {
+        @Override
+        void deathLogic() {
+
+        }
+    },
+    INACTIVE,
+    EXHAUSTED,
+    MYELOMA,
+    RESISTANT,
+    LINING,
+    BONE,
+    DEFAULT;
+
+    CellType cellType;
+
+    Cell() {
+    }
+
+    void divisionLogic() {
+    }
+
+    void deathLogic() {
+    }
+    // = new CellType(RGB256(17, 150, 150), 0);
+}
 
 class GridLattice extends AgentGrid2D<AgentLattice> {
-    public static int timeStep = 0; // initial timestep
-    public final static double STEPS = (50 * 24.0); // timesteps in hours
+
+    static final int xDim = 160;
+    static final int yDim = 150;
+
+    int timeStep = 0; // initial timestep
+    final static double STEPS = (450 * 24.0); // timesteps in hours
     public final static int ITERATIONS = 5; // number of times the model will run
-    public static boolean VISUALS = true; // turns on/off visualizations for the model
-    public final static int activeTcell = 1; // active cd8 t-cells
-    public final static int Myeloma = 2; // myeloma cell
-    public final static int BONE = 3; // bone
-    public final static int exhaustedTcells = 4; // exhausted cd8 t-cell
-    public final static int LINING = 5; // bone lining
-    public final static int inactiveTcell = 6; // inactive tcells
-    public static final int InitactiveTcells = 0; // initial number of active tcells
-    public static final int InitinactiveTcells = 100; //initial number of inactive tcells
+    public final static boolean VISUALS = true; // turns on/off visualizations for the model
+    public final static CellType ACTIVE = new CellType(RGB256(17, 150, 150), 0);
+    public final static CellType EXHAUSTED = new CellType(RGB256(200, 50, 250), 1);
+    public final static CellType MYELOMA = new CellType(RGB256(47, 32, 66), 2);
+    public final static CellType INACTIVE = new CellType(RGB256(255, 165, 0), 3);
+    public final static CellType LINING = new CellType(RGB256(64, 106, 151), 4);
+    public final static CellType BONE = new CellType(RGB256(255, 255, 250), 5);
+    public final static CellType RESISTANT = new CellType(RGB256(255, 0, 0), 6); // resistant tumor cells
+    public static final int InitactiveTcells = 5; // initial number of active tcells
+    public static final int InitinactiveTcells = 1000; //initial number of inactive tcells
     public static final int InitexhaustedTcells = 0; // initial number of exhausted tcells
+    final static int TCE_start = 30; // start day for treatment
+    final static int TCE_Duration = 50; // duration (in days) of treatment
     final static double Myeloma_PROLIFERATION_PROB = 1.0 / 24; //cancer cell division rate
+
     final static double Myeloma_DEATH_PROB = 1.0 / 72; // cancer cell apoptosis rate
-    final static double mutProb = 0.003; // probability that a myeloma cell will lose BCMA due to a mutation NOT CLINICALLY VERIFIED
+    final static double mutProb = 0.005; // probability that a myeloma cell will lose BCMA due to a mutation NOT CLINICALLY VERIFIED
     public double T_CELL_DEATH_RATE = 1.0 / 24; // tcell death rate - used for exhausted tcells
     double CXCL9_productionRate = .1; // production of CXCL9
     double CXCL9_decayRate = -0.3; // decay of CXCL9
@@ -49,10 +86,9 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     double maxCXCL9 = 1.7; // used for numerical stability
     double Tcell_TaxisCoeff = 3.0e9; // tcell movement towards CXCL9
     double Tcell_DiffCoef = 0.1 * 3.0; // diffusion coefficient for cd8 t-cells
-    double TCE_DiffCoef = 1.0; // diffusion coefficient for TCE bsAbs
 
 
-    boolean TCE_ON = true; // switching on tce therapy
+    static boolean TCE_ON = true; // switching on tce therapy
 
     boolean preRes = true;
 
@@ -60,9 +96,6 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
     double maxTCE = 30; // not using this yet
 
-    double TCE_start = 10; // start day for treatment
-
-    double TCE_Duration = 10; // duration (in days) of treatment
 
     public PDEGrid2D CXCL9; // pde grid for CXCL9
 
@@ -73,7 +106,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
     public Rand rn = new Rand();
 
-    public double[] TCE_levels;
+
     FileIO output;
 
     ////////////////////
@@ -101,13 +134,12 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         return x >= minX && x <= maxX && y >= minY && y <= maxY;
     }
 
-    public GridLattice(int xDim, int yDim, String outFileName) {
-        super(xDim, yDim, AgentLattice.class, true, true);
+    public GridLattice() {
+
+        super(GridLattice.xDim, GridLattice.yDim, AgentLattice.class, true, true);
+
         CXCL9 = new PDEGrid2D(xDim, yDim, true, true); //This assumes PERIODIC BOUNDARY CONDITION (wrapX=TRUE,wrapY=TRUE)
 
-        output = new FileIO(outFileName, "w");
-        output.Write("Time,TCELLS, EXTCELLS, MYELOMA, Inactive Tcells, CXCL9" + "\n");
-        TCE_levels = new double[xDim * yDim];
         double totalArea = xDim * yDim;
         double blackBoxArea = 0.129 * totalArea;
         int sideLength = (int) Math.sqrt(blackBoxArea);
@@ -120,7 +152,28 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         int startX = centerX - sideLength / 2;
         int startY = centerY - sideLength / 2;
 
-        // Place the black box border and inside color
+        instantiateBoneCells(startX, startY, sideLength);
+        instantiateMyelomaCells(startX, startY, sideLength);
+
+        this.timeStep = 0;
+    }
+
+    private void instantiateMyelomaCells(int startX, int startY, int sideLength) {
+        for (int i = 0; i < 500; i++) {
+            // Recruit one myeloma cell within 10 grid spaces from the bone
+            int myelomaX, myelomaY;
+            do {
+                myelomaX = rn.Int(xDim);
+                myelomaY = rn.Int(yDim);
+            } while (!isWithinDistanceFromBone(myelomaX, myelomaY, startX, startY, sideLength, 5) || PopAt(myelomaX, myelomaY) > 0);
+
+            AgentLattice c = NewAgentSQ(myelomaX, myelomaY);
+            c.type = MYELOMA;
+
+        }
+    }
+
+    private void instantiateBoneCells(int startX, int startY, int sideLength) {
         for (int i = startX; i < startX + sideLength; i++) {
             for (int j = startY; j < startY + sideLength; j++) {
                 if (i == startX || i == startX + sideLength - 1 || j == startY || j == startY + sideLength - 1) {
@@ -133,18 +186,6 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                 }
             }
         }
-        for (int i = 0; i < 500; i++) {
-            // Recruit one myeloma cell within 10 grid spaces from the bone
-            int myelomaX, myelomaY;
-            do {
-                myelomaX = rn.Int(xDim);
-                myelomaY = rn.Int(yDim);
-            } while (!isWithinDistanceFromBone(myelomaX, myelomaY, startX, startY, sideLength, 5) || PopAt(myelomaX, myelomaY) > 0);
-
-            AgentLattice c = NewAgentSQ(myelomaX, myelomaY);
-            c.type = Myeloma;
-            c.SetCellColor();
-        }
     }
 
     ////////////////
@@ -154,8 +195,11 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         for (int x = 0; x < xDim; x++) {
             for (int y = 0; y < yDim; y++) {
                 AgentLattice drawMe = GetAgent(x, y);
-                if (drawMe != null) {
-                    vis.SetPix(x, y, drawMe.color);
+                if (drawMe != null && drawMe.type != null) {
+                    vis.SetPix(x, y, drawMe.type.rgbColor());
+                    if (drawMe.type == INACTIVE) {
+
+                    }
                 } else {
                     vis.SetPix(x, y, RGB256(240, 220, 220));
                 }
@@ -178,29 +222,15 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     }
 
 
-    public void SetTCEs() {
-        for (int i = 0; i < xDim * yDim; i++) { //Random distribution of TCEs throughout medium
-            TCE_levels[i] = rn.Double() * 0.25;
-        }
-    }
-
     public double[] CellCounts() {
-        double[] counts = new double[5];
+        double[] cts = new double[7];
         for (AgentLattice c : this) {
-            if (c.type == activeTcell) {
-                counts[0]++;
-            }
-            if (c.type == exhaustedTcells) {
-                counts[1]++;
-            }
-            if (c.type == Myeloma) {
-                counts[2]++;
-            }
-            if (c.type == inactiveTcell) {
-                counts[3]++;
+            if (c.type != null) {
+                cts[c.type.index()]++;
             }
         }
-        return counts;
+
+        return cts;
     }
 
     public void RecordOut(FileIO writeHere, int time, double[] cts) {
@@ -210,12 +240,10 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     }
 
 
-    public void ModelStep(double timeStep, double day) {
-        // if ( day > TCE_start){
-        //         if (timeStep % 24 == 0) {
+    public void ModelStep(double timeStep, int day) {
         for (int x = 0; x < CXCL9.xDim; x++) {
             for (int y = 0; y < CXCL9.yDim; y++) {
-                if (GetAgent(x, y) != null && GetAgent(x, y).type == Myeloma) {
+                if (GetAgent(x, y) != null && (GetAgent(x, y).type == MYELOMA || GetAgent(x, y).type == RESISTANT)) {
                     CXCL9.Add(x, y, CXCL9_productionRate / maxCXCL9);
 
                 }
@@ -224,10 +252,9 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         }
 
 
-        SetTCEs();
         for (int i = 0; i < xDim * yDim; i++) {
             if (this.GetAgent(i) != null) {
-                this.GetAgent(i).TCE_Attach(i);
+                this.GetAgent(i).TCE_Attach();
             }
         }
 
@@ -246,6 +273,33 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         }
     }
 
+    public static String makeOutputPath() {
+        // PATHS
+        String projPath = "ABMBoneMarrow";
+        //Save in folder format "initActiveTCells_initInactiveTCell_initExhaustedTcell"
+        String setting_dir = projPath + "/output/" + "/" + "act:" + InitactiveTcells + "_in:" + InitinactiveTcells + "_ex:" + InitexhaustedTcells + "_start:" + (int) TCE_start + "_duration:" + (int) TCE_Duration;
+        // CREATE OUTPUT DIR
+        new File(setting_dir).mkdirs();
+        String output_dir = setting_dir;
+        new File(output_dir).mkdirs();
+
+        return output_dir;
+    }
+
+    public static UIWindow initWindow(UIGrid Cell_vis, UIGrid CXCL9_vis, int j) {
+        UIWindow win = new UIWindow("Active: " + InitactiveTcells + ", Inactive: " + InitinactiveTcells + ", Exhausted: " + InitexhaustedTcells + ", Start: " + TCE_start + ", Duration " + TCE_Duration + ", Iteration " + (j + 1));
+        win.AddCol(0, new UILabel("Cells"));
+        win.AddCol(0, Cell_vis);
+        win.AddCol(2, new UILabel("CXCl9"));
+        win.AddCol(2, CXCL9_vis);
+        return win;
+    }
+
+    void generateFile(String fileWithFullPath) {
+        output = new FileIO(fileWithFullPath, "w");
+        output.Write("Time,TCELLS, EXTCELLS, MYELOMA, Inactive Tcells, CXCL9, Bone, Resistant" + "\n");
+    }
+
     /**
      * Visualization of tumor microenvironment for a certain number of iterations.
      * 1. Active T Cells
@@ -259,136 +313,134 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
      */
     public static void main(String[] args) throws IOException {
 
-        //TIME STAMP
-        SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy-MM-dd_HH_SS");
-        Date now = new Date();
-        String date_time = dateFormat.format(now);
-        int numIterations = ITERATIONS; // Change this value to specify the number of iterations
-        for (int j = 0; j < numIterations; j++) {
-            int day = 0;
+        String output_dir = makeOutputPath();
+        String path_to_output_file = "";
 
-            String save = new String();
-            //GridWindow win = null;
-            int xDim = 160;
-            int yDim = 150;
-            double TIMESTEPS = STEPS;
+        //Makes Gifs
+        GifMaker gm_Cell_vis = new GifMaker(output_dir.concat("/").concat("CellVid").concat(".gif"), 100, true);
+        GifMaker gm_CXCL9_vis = new GifMaker(output_dir.concat("/").concat("CXCL9Vid").concat(".gif"), 100, true);
 
-            // PATHS
-            String projPath = "ABMBoneMarrow";
-            //Save in folder format "initActiveTCells_initInactiveTCell_initExhaustedTcell"
-            String setting_dir = projPath + save + "/output/" + "/" + "act:" + InitactiveTcells + "_in:" + InitinactiveTcells + "_ex:" + InitexhaustedTcells;
-            // CREATE OUTPUT DIR
-            new File(setting_dir).mkdirs();
-            String output_dir = setting_dir;
-            new File(output_dir).mkdirs();
-            // OUTPUT FILES
-            String path_to_output_file = output_dir.concat("/").concat("CellCounts_" + j).concat(".csv");
-            // OUTPUT WINDOW
-            UIGrid Cell_vis = new UIGrid(xDim, yDim, 4, 2, 5);
-            UIGrid CXCL9_vis = new UIGrid(xDim, yDim, 4, 2, 5);
-            UIGrid TCE_vis = new UIGrid(xDim, yDim, 4, 2, 5);
-            UIWindow win = new UIWindow("Active: " + InitactiveTcells + ", Inactive: " + InitinactiveTcells + ", Exhausted: " + InitexhaustedTcells + ", Iteration " + (j + 1));
-            win.AddCol(0, new UILabel("Cells"));
-            win.AddCol(0, Cell_vis);
-            win.AddCol(2, new UILabel("CXCl9"));
-            win.AddCol(2, CXCL9_vis);
+//        for (int j = 0; j < ITERATIONS; j++) {
+        IntStream.range(0, ITERATIONS)
+                .parallel()
+                .forEach(j -> {
+
+                            int day = 0;
+                            boolean initial_recruitment = true;
+
+                            // GRID
+                            GridLattice g = new GridLattice();
+                            g.generateFile(output_dir.concat("/").concat("CellCounts_" + j).concat(".csv"));
 
 
-            win.RunGui();
-            GifMaker gm_Cell_vis = new GifMaker(output_dir.concat("/").concat("CellVid").concat(".gif"), 100, true);
-            GifMaker gm_CXCL9_vis = new GifMaker(output_dir.concat("/").concat("CXCL9Vid").concat(".gif"), 100, true);
-            // GRID
-            GridLattice g = new GridLattice(xDim, yDim, path_to_output_file);
+                            // OUTPUT WINDOW
+                            UIGrid Cell_vis = new UIGrid(xDim, yDim, 4, 2, 5);
+                            UIGrid CXCL9_vis = new UIGrid(xDim, yDim, 4, 2, 5);
+                            UIWindow win = initWindow(Cell_vis, CXCL9_vis, j);
+                            win.RunGui();
 
-            boolean initial_recruitment = true;
-            // TIME LOOP
-            for (int i = 0; i < TIMESTEPS; i++) {
 
-                timeStep = i;
-                if (VISUALS) {
-                    win.TickPause(0); //slows or speeds up the video frame rate
-                }
-                // COUNT CURRENT POPULATION
-                double[] cell_count = g.CellCounts();
-                if (cell_count[2] >= 500) { //recruiting tcells (if number of myeloma cells >= 500)
-                    if (initial_recruitment) {
-                        int InitTcells = g.InitactiveTcells;
-                        int k = 0;
-                        while (k < InitTcells) {
-                            int xinit = g.rn.Int(xDim);
-                            int yinit = g.rn.Int(yDim);
-                            while (g.PopAt(xinit, yinit) > 0) {
-                                xinit = g.rn.Int(xDim);
-                                yinit = g.rn.Int(yDim);
+                            // TIME LOOP
+                            for (int i = 0; i < STEPS; i++) {
+                                if (day >= TCE_start && day < TCE_start + TCE_Duration) { //Turn on TCE treatment if day is in treatment block
+                                    TCE_ON = true;
+
+                                } else {
+                                    TCE_ON = false;
+                                }
+
+                                g.timeStep = i;
+
+                                if (VISUALS) {
+                                    win.TickPause(0); //slows or speeds up the video frame rate
+                                }
+                                // COUNT CURRENT POPULATION
+                                //
+                                double[] cts = g.CellCounts();
+                                //
+                                if (cts[MYELOMA.index()] >= 500) { //recruiting tcells (if number of myeloma cells >= 500)
+                                    if (initial_recruitment) {
+                                        int InitTcells = g.InitactiveTcells;
+                                        int k = 0;
+                                        while (k < InitTcells) {
+                                            int xinit = g.rn.Int(xDim);
+                                            int yinit = g.rn.Int(yDim);
+                                            while (g.PopAt(xinit, yinit) > 0) {
+                                                xinit = g.rn.Int(xDim);
+                                                yinit = g.rn.Int(yDim);
+                                            }
+                                            // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
+                                            AgentLattice c = g.NewAgentSQ(xinit, yinit);
+                                            c.type = ACTIVE;
+
+                                            k++;
+                                        }
+                                    }
+                                    initial_recruitment = false;
+                                }
+
+                                //Initializing Inactive TCElls
+                                if (g.timeStep == 0) {
+                                    int k = 0;
+                                    while (k < g.InitinactiveTcells) {
+                                        int xinit = g.rn.Int(xDim);
+                                        int yinit = g.rn.Int(yDim);
+                                        while (g.PopAt(xinit, yinit) > 0) {
+                                            xinit = g.rn.Int(xDim);
+                                            yinit = g.rn.Int(yDim);
+                                        }
+                                        // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
+                                        AgentLattice c = g.NewAgentSQ(xinit, yinit);
+                                        c.type = INACTIVE;
+                                        k++;
+                                    }
+
+                                    //Initializing Exhausted TCells
+                                    int m = 0;
+                                    while (m < g.InitexhaustedTcells) {
+                                        int xinit = g.rn.Int(xDim);
+                                        int yinit = g.rn.Int(yDim);
+                                        while (g.PopAt(xinit, yinit) > 0) {
+                                            xinit = g.rn.Int(xDim);
+                                            yinit = g.rn.Int(yDim);
+                                        }
+                                        // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
+                                        AgentLattice c = g.NewAgentSQ(xinit, yinit);
+                                        c.type = EXHAUSTED;
+
+                                        m++;
+                                    }
+
+                                }
+
+                                //Putting CXCL9 in cell population map so we can use population data in CSV
+                                cts[LINING.index()] = g.CXCL9.GetAvg();
+                                // RUN MODEL SIMULATION STEP
+                                g.ModelStep(g.timeStep, day);
+                                // GRAPHICAL OUTPUT
+                                if (VISUALS) {
+                                    g.Draw(Cell_vis);
+                                    g.DrawCXCL9(CXCL9_vis);
+
+                                }
+                                // OTHER OUTPUT
+                                if (i % 24.0 == 0) {
+                                    day += 1;
+                                    System.out.println("Day " + day);
+                                    g.RecordOut(g.output, i / 24, cts);
+                                }
                             }
-                            // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
-                            AgentLattice c = g.NewAgentSQ(xinit, yinit);
-                            c.type = activeTcell;
-                            c.SetCellColor();
-                            k++;
+
+
+                            System.out.println("Current Iteration: " + j);
+                            g.output.Close();
+                            //            System.out.println("HI");
+                            gm_Cell_vis.Close();
+                            //            System.out.println("HI");
+                            gm_CXCL9_vis.Close();
+                            //            System.out.println("HI");
                         }
-                    }
-                    initial_recruitment = false;
-                }
-                if (timeStep == 0) {
-                    int k = 0;
-                    while (k < g.InitinactiveTcells) {
-                        int xinit = g.rn.Int(xDim);
-                        int yinit = g.rn.Int(yDim);
-                        while (g.PopAt(xinit, yinit) > 0) {
-                            xinit = g.rn.Int(xDim);
-                            yinit = g.rn.Int(yDim);
-                        }
-                        // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
-                        AgentLattice c = g.NewAgentSQ(xinit, yinit);
-                        c.type = inactiveTcell;
-                        c.SetCellColor();
-                        k++;
-                    }
-
-                    int m = 0;
-                    while (m < g.InitexhaustedTcells) {
-                        int xinit = g.rn.Int(xDim);
-                        int yinit = g.rn.Int(yDim);
-                        while (g.PopAt(xinit, yinit) > 0) {
-                            xinit = g.rn.Int(xDim);
-                            yinit = g.rn.Int(yDim);
-                        }
-                        // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
-                        AgentLattice c = g.NewAgentSQ(xinit, yinit);
-                        c.type = exhaustedTcells;
-                        c.SetCellColor();
-                        m++;
-                    }
-
-                }
-                cell_count[4] = g.CXCL9.GetAvg();
-                // RUN MODEL SIMULATION STEP
-                g.ModelStep(timeStep, day);
-                // GRAPHICAL OUTPUT
-                if (VISUALS) {
-                    g.Draw(Cell_vis);
-                    g.DrawCXCL9(CXCL9_vis);
-
-                }
-                // OTHER OUTPUT
-                if (i % 24.0 == 0) {
-                    day += 1;
-                    System.out.println("Day " + day);
-                    g.RecordOut(g.output, i / 24, cell_count);
-                }
-            }
-
-
-            System.out.println("Current Iteration: " + j);
-            g.output.Close();
-//            System.out.println("HI");
-            gm_Cell_vis.Close();
-//            System.out.println("HI");
-            gm_CXCL9_vis.Close();
-//            System.out.println("HI");
-
-        }
+                );
 
     }
 }
@@ -398,30 +450,20 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 //////////////
 
 class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
-    public int type; // type of cell
-    int color; // color of each cell for visualization
+    public CellType type; // type of cell
     double pd_1 = 0; // pd_1 for tcells
     double pd_l1 = 0; // pd_l1 for t cells
     double tcellAge = 0; // used for tracking the age of a tcell
     double hours_since_kill = 0; // hours since a tcell last killed a myeloma cell
     double hours_since_division = 0; //days since the Tcell has divided
-    boolean BCMA = true; // used for whether or not a myeloma cell is expressing bcma
+    boolean BCMA = false; // used for whether or not a myeloma cell is expressing bcma
 
-    public boolean TCE = false;
+    public boolean TCE = false;// used for whether a tcell is attached to TCE
 
     ////////////////
     //CELL METHODS//
     ////////////////
-    final public static int tcell = RGB256(17, 150, 150); //tcell color
-    final public static int exhausted = RGB256(200, 50, 250); //exhausted tcell color
-    final public static int cancer = RGB256(47, 32, 66); // myeloma cell color
 
-    final public static int bone = RGB256(64, 106, 151); //bone color
-
-    final public static int inactivetcell = RGB256(255, 165, 0);
-
-
-    final public static int resistantcancer = RGB256(255, 0, 0);
     public boolean BCMA_NOT_SET = false;
 
     public int seekCXCL9() {
@@ -493,57 +535,26 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
         return moveToIndex;
     }
 
-    public static int CategorialColor(int index) {
-        switch (index) {
-            case activeTcell:
-                return tcell;
-            case exhaustedTcells:
-                return exhausted;
-            case Myeloma:
-                return cancer;
-            case BONE:
-                return bone;
-            case inactiveTcell:
-                return inactivetcell;
-            default:
-                throw new IllegalArgumentException("index outside color category range index: " + index);
-        }
-    }
-
-    void SetCellColor() {
-        color = CategorialColor((int) Math.round(0 + type));
-    }
 
     void Tcell_Kill() {
-        if (type == Myeloma) {
+        if (type == MYELOMA) {
             this.Dispose();
         }
     }
 
-    public void TCE_Attach(int i) { //Assume stochastic and uneven distribution of TCEs
-        double random = G.rn.Double();
-        double TCE_density = G.TCE_levels[i];
-        if (random < ProbScale(TCE_density, 1) && this.type == inactiveTcell) {
-            this.type = activeTcell;
-            this.color = tcell;
+    public void TCE_Attach() { //Assume even distribution of TCEs
+
+        if (G.TCE_ON && this.type == INACTIVE) {
+            this.type = ACTIVE;
             this.TCE = true;
-            System.out.println("Changed to Active!");
         }
     }
 
 
     void CellStep(double day) {
 
-        if (type == BONE) {
-            this.color = RGB256(255, 255, 250);
-        }
+        if (type == EXHAUSTED) {
 
-        if (type == LINING) {
-            this.color = RGB256(64, 106, 151);
-        }
-
-        if (type == exhaustedTcells) {
-            this.SetCellColor();
             int[] movdivHood = MooreHood(true); // for division and movement
             int emptyNeighbors = MapEmptyHood(movdivHood); // mapping empty spots
             double rn_BirthDeath = G.rn.Double();
@@ -560,7 +571,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
             }
         }
 
-        if (type == activeTcell) {
+        if (type == ACTIVE) {
             boolean encounteredMyeloma = false; // Track if a myeloma cell is encountered
             boolean agedDeath = false; // Track if the T cell is aged and should die
 
@@ -588,7 +599,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                         if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
                             AgentLattice child = G.NewAgentSQ(chosenCell);
                             child.type = this.type;
-                            child.SetCellColor();
+
                             child.tcellAge = 0;
                             child.pd_1 = Math.floor(this.pd_1 / 4);
                             child.pd_l1 = this.pd_l1;
@@ -602,18 +613,19 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
 
                 // Transition to exhausted T cell if pd_l1 exceeds pd_1
                 if (this.pd_l1 > this.pd_1) {
-                    this.type = exhaustedTcells;
+                    this.type = EXHAUSTED;
                     break;
                 } else {
                     // Killing logic
                     for (int j = 0; j < options; j++) {
-                        if (G.GetAgent(movdivHood[j]) != null && G.GetAgent(movdivHood[j]).type == Myeloma && this.hours_since_kill >= 1) {
-                            if (!(this.TCE && !G.GetAgent(movdivHood[j]).BCMA)) {// If the cells don't have TCE or have BCMA
+                        if (G.GetAgent(movdivHood[j]) != null && (G.GetAgent(movdivHood[j]).type == MYELOMA || G.GetAgent(movdivHood[j]).type == RESISTANT) && this.hours_since_kill >= 1) {
+                            if (this.TCE && !G.GetAgent(movdivHood[j]).BCMA) {
+                                ;
+                            } else { // If the cells don't have TCE or have BCMA
                                 G.GetAgent(movdivHood[j]).Tcell_Kill();
-                                this.pd_l1 += 1;
+
+                                this.pd_l1 += 0.5;
                                 this.hours_since_kill = 0; // Reset kill timer
-                            } else {
-                                System.out.println("I didn't kill the tumor cell");
                             }
 
 
@@ -625,7 +637,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                                     if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
                                         AgentLattice child = G.NewAgentSQ(chosenCell);
                                         child.type = this.type;
-                                        child.SetCellColor();
+
                                         child.tcellAge = 0;
                                         child.pd_1 = Math.floor(this.pd_1 / 4);
                                         child.pd_l1 = this.pd_l1;
@@ -655,11 +667,8 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
         }
 
 
-        if (type == Myeloma) {
-            if (this.BCMA_NOT_SET) {
-                this.BCMA = true;
-                this.BCMA_NOT_SET = false;
-            }
+        if (type == MYELOMA) {
+            this.BCMA = true;
 
             //STEP 1: death
             if (G.rn.Double() < ProbScale(G.Myeloma_DEATH_PROB, 1)) {
@@ -667,15 +676,6 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 return;
             }
 
-            //STEP 2: Mutation
-            if (G.rn.Double() < ProbScale(mutProb, 1)) {
-                this.BCMA = !this.BCMA;
-                if (!this.BCMA) {
-                    this.color = resistantcancer;
-                } else {
-                    this.color = cancer;
-                }
-            }
 
             //STEP 2: division
             if (G.rn.Double() < ProbScale(G.Myeloma_PROLIFERATION_PROB, 1)) {
@@ -685,23 +685,47 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 if (emptyNeighbors > 0) {
                     AgentLattice child = G.NewAgentSQ(divHood[G.rn.Int(emptyNeighbors)]);
                     if (G.rn.Double() < mutProb) {
-                        child.BCMA = false;
+                        child.type = RESISTANT;
                     } else if (G.rn.Double() > mutProb) {
-                        child.BCMA = true;
+                        child.type = MYELOMA;
                     }
-                    child.type = this.type;
-                    child.SetCellColor();
+
+
                 }
             }
         }
 
-        if (type == inactiveTcell) {
+        if (type == RESISTANT) {
+            this.BCMA = false;
+
+            //STEP 1: death
+            if (G.rn.Double() < ProbScale(G.Myeloma_DEATH_PROB, 1)) {
+                Dispose();
+                return;
+            }
+
+
+            //STEP 2: division
+            if (G.rn.Double() < ProbScale(G.Myeloma_PROLIFERATION_PROB, 1)) {
+                int[] divHood = MooreHood(true);
+                int emptyNeighbors = MapEmptyHood(divHood);
+                //Create new Agent
+                if (emptyNeighbors > 0) {
+                    AgentLattice child = G.NewAgentSQ(divHood[G.rn.Int(emptyNeighbors)]);
+                    child.type = this.type;
+
+                }
+            }
+
+        }
+
+        if (type == INACTIVE) {
             boolean agedDeath = false; //Tracking for aged Tcells
-            if (timeStep % 24.0 == 0) {
+            if (G.timeStep % 24.0 == 0) {
                 this.tcellAge += 1;
             }
             if (G.TCE_ON) {
-                this.type = activeTcell;
+                this.type = ACTIVE;
             }
             for (int run = 0; run < 3; run++) {
                 double rn_BirthDeath = G.rn.Double();
@@ -721,7 +745,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                                 child.pd_1 = 0;
                                 child.pd_l1 = 0;
                                 child.hours_since_division = 0;
-                                child.SetCellColor();
+
                                 break;
                             }
                         }
@@ -745,6 +769,4 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
 
 }
 
-class TCell extends AgentLattice {
 
-}
