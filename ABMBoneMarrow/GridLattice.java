@@ -15,43 +15,37 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.stream.IntStream;
 
-import static ABMBoneMarrow.GridLattice.*;
+import static ABMBoneMarrow.CellType.*;
+import static ABMBoneMarrow.GridLattice.mutProb;
 import static HAL.Util.*;
 
 //////////////
 //GRID CLASS//
 //////////////
 
-// TODO add enum instead of record for the cell types
-record CellType(int rgbColor, int index) {
-}
-
-enum Cell {
-    ACTIVE {
-        @Override
-        void deathLogic() {
-
-        }
-    },
-    INACTIVE,
-    EXHAUSTED,
-    MYELOMA,
-    RESISTANT,
-    LINING,
-    BONE,
+enum CellType {
+    ACTIVE(RGB256(17, 150, 150), 0),
+    INACTIVE(RGB256(255, 165, 0), 3),
+    EXHAUSTED(RGB256(200, 50, 250), 1),
+    MYELOMA(RGB256(47, 32, 66), 2),
+    RESISTANT(RGB256(255, 0, 0), 6),
+    LINING(RGB256(64, 106, 151), 4),
+    BONE(RGB256(255, 255, 250), 5),
     DEFAULT;
 
-    CellType cellType;
+    int rgbColor;
+    int index;
 
-    Cell() {
+
+    CellType(int color, int index) {
+        this.rgbColor = color;
+        this.index = index;
     }
 
-    void divisionLogic() {
+    CellType() {
+        this.rgbColor = RGB256(0, 0, 0);
+        this.index = -999;
     }
-
-    void deathLogic() {
-    }
-    // = new CellType(RGB256(17, 150, 150), 0);
 }
 
 class GridLattice extends AgentGrid2D<AgentLattice> {
@@ -60,16 +54,16 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     static final int yDim = 150;
 
     int timeStep = 0; // initial timestep
-    final static double STEPS = (450 * 24.0); // timesteps in hours
+    final static double STEPS = (100 * 24.0); // timesteps in hours
     public final static int ITERATIONS = 5; // number of times the model will run
     public final static boolean VISUALS = true; // turns on/off visualizations for the model
-    public final static CellType ACTIVE = new CellType(RGB256(17, 150, 150), 0);
-    public final static CellType EXHAUSTED = new CellType(RGB256(200, 50, 250), 1);
-    public final static CellType MYELOMA = new CellType(RGB256(47, 32, 66), 2);
-    public final static CellType INACTIVE = new CellType(RGB256(255, 165, 0), 3);
-    public final static CellType LINING = new CellType(RGB256(64, 106, 151), 4);
-    public final static CellType BONE = new CellType(RGB256(255, 255, 250), 5);
-    public final static CellType RESISTANT = new CellType(RGB256(255, 0, 0), 6); // resistant tumor cells
+    //    public final static CellType ACTIVE = new CellType(RGB256(17, 150, 150), 0);
+//    public final static CellType EXHAUSTED = new CellType(RGB256(200, 50, 250), 1);
+//    public final static CellType MYELOMA = new CellType(RGB256(47, 32, 66), 2);
+//    public final static CellType INACTIVE = new CellType(RGB256(255, 165, 0), 3);
+//    public final static CellType LINING = new CellType(RGB256(64, 106, 151), 4);
+//    public final static CellType BONE = new CellType(RGB256(255, 255, 250), 5);
+//    public final static CellType RESISTANT = new CellType(RGB256(255, 0, 0), 6);
     public static final int InitactiveTcells = 5; // initial number of active tcells
     public static final int InitinactiveTcells = 1000; //initial number of inactive tcells
     public static final int InitexhaustedTcells = 0; // initial number of exhausted tcells
@@ -167,8 +161,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                 myelomaY = rn.Int(yDim);
             } while (!isWithinDistanceFromBone(myelomaX, myelomaY, startX, startY, sideLength, 5) || PopAt(myelomaX, myelomaY) > 0);
 
-            AgentLattice c = NewAgentSQ(myelomaX, myelomaY);
-            c.type = MYELOMA;
+            AgentLattice c = NewAgentSQ(myelomaX, myelomaY).as(MYELOMA);
 
         }
     }
@@ -178,11 +171,9 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
             for (int j = startY; j < startY + sideLength; j++) {
                 if (i == startX || i == startX + sideLength - 1 || j == startY || j == startY + sideLength - 1) {
                     // Set the cell type to BLACK_BOX and color to black
-                    AgentLattice c = NewAgentSQ(i, j);
-                    c.type = LINING;
+                    NewAgentSQ(i, j).as(CellType.LINING);
                 } else {
-                    AgentLattice c = NewAgentSQ(i, j);
-                    c.type = BONE;
+                    NewAgentSQ(i, j).as(BONE);
                 }
             }
         }
@@ -195,10 +186,10 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         for (int x = 0; x < xDim; x++) {
             for (int y = 0; y < yDim; y++) {
                 AgentLattice drawMe = GetAgent(x, y);
-                if (drawMe != null && drawMe.type != null) {
-                    vis.SetPix(x, y, drawMe.type.rgbColor());
-                    if (drawMe.type == INACTIVE) {
-
+                if (drawMe != null && drawMe.cell != null) {
+                    vis.SetPix(x, y, drawMe.cell.rgbColor);
+                    if (drawMe.cell == INACTIVE) {
+                        //FIXME Check with local history if we deleted some code accidentally
                     }
                 } else {
                     vis.SetPix(x, y, RGB256(240, 220, 220));
@@ -225,8 +216,8 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     public double[] CellCounts() {
         double[] cts = new double[7];
         for (AgentLattice c : this) {
-            if (c.type != null) {
-                cts[c.type.index()]++;
+            if (c.cell != null) {
+                cts[c.cell.index]++;
             }
         }
 
@@ -243,7 +234,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     public void ModelStep(double timeStep, int day) {
         for (int x = 0; x < CXCL9.xDim; x++) {
             for (int y = 0; y < CXCL9.yDim; y++) {
-                if (GetAgent(x, y) != null && (GetAgent(x, y).type == MYELOMA || GetAgent(x, y).type == RESISTANT)) {
+                if (GetAgent(x, y) != null && (GetAgent(x, y).cell == MYELOMA || GetAgent(x, y).cell == RESISTANT)) {
                     CXCL9.Add(x, y, CXCL9_productionRate / maxCXCL9);
 
                 }
@@ -358,7 +349,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                 //
                                 double[] cts = g.CellCounts();
                                 //
-                                if (cts[MYELOMA.index()] >= 500) { //recruiting tcells (if number of myeloma cells >= 500)
+                                if (cts[MYELOMA.index] >= 500) { //recruiting tcells (if number of myeloma cells >= 500)
                                     if (initial_recruitment) {
                                         int InitTcells = g.InitactiveTcells;
                                         int k = 0;
@@ -370,9 +361,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                                 yinit = g.rn.Int(yDim);
                                             }
                                             // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
-                                            AgentLattice c = g.NewAgentSQ(xinit, yinit);
-                                            c.type = ACTIVE;
-
+                                            g.NewAgentSQ(xinit, yinit).as(ACTIVE);
                                             k++;
                                         }
                                     }
@@ -390,8 +379,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                             yinit = g.rn.Int(yDim);
                                         }
                                         // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
-                                        AgentLattice c = g.NewAgentSQ(xinit, yinit);
-                                        c.type = INACTIVE;
+                                        g.NewAgentSQ(xinit, yinit).as(INACTIVE);
                                         k++;
                                     }
 
@@ -405,16 +393,14 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                             yinit = g.rn.Int(yDim);
                                         }
                                         // Once xinit and yinit are within (0,0) and (xDim,yDim), place agent.
-                                        AgentLattice c = g.NewAgentSQ(xinit, yinit);
-                                        c.type = EXHAUSTED;
-
+                                        g.NewAgentSQ(xinit, yinit).as(EXHAUSTED);
                                         m++;
                                     }
 
                                 }
 
                                 //Putting CXCL9 in cell population map so we can use population data in CSV
-                                cts[LINING.index()] = g.CXCL9.GetAvg();
+                                cts[LINING.index] = g.CXCL9.GetAvg();
                                 // RUN MODEL SIMULATION STEP
                                 g.ModelStep(g.timeStep, day);
                                 // GRAPHICAL OUTPUT
@@ -434,11 +420,8 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
                             System.out.println("Current Iteration: " + j);
                             g.output.Close();
-                            //            System.out.println("HI");
                             gm_Cell_vis.Close();
-                            //            System.out.println("HI");
                             gm_CXCL9_vis.Close();
-                            //            System.out.println("HI");
                         }
                 );
 
@@ -450,8 +433,8 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 //////////////
 
 class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
-    public CellType type; // type of cell
-    double pd_1 = 0; // pd_1 for tcells
+    public CellType cell; // type of cell
+    double pd_1 = 0; // pd_1 for t cells
     double pd_l1 = 0; // pd_l1 for t cells
     double tcellAge = 0; // used for tracking the age of a tcell
     double hours_since_kill = 0; // hours since a tcell last killed a myeloma cell
@@ -465,6 +448,12 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
     ////////////////
 
     public boolean BCMA_NOT_SET = false;
+
+    public AgentLattice as(CellType type) {
+        this.cell = type;
+        return this;
+    }
+
 
     public int seekCXCL9() {
         int neighbors = MapHood(G.tmoveHood); // includes self
@@ -537,15 +526,15 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
 
 
     void Tcell_Kill() {
-        if (type == MYELOMA) {
+        if (cell == MYELOMA) {
             this.Dispose();
         }
     }
 
     public void TCE_Attach() { //Assume even distribution of TCEs
 
-        if (G.TCE_ON && this.type == INACTIVE) {
-            this.type = ACTIVE;
+        if (G.TCE_ON && this.cell == INACTIVE) {
+            this.cell = ACTIVE;
             this.TCE = true;
         }
     }
@@ -553,7 +542,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
 
     void CellStep(double day) {
 
-        if (type == EXHAUSTED) {
+        if (cell == EXHAUSTED) {
 
             int[] movdivHood = MooreHood(true); // for division and movement
             int emptyNeighbors = MapEmptyHood(movdivHood); // mapping empty spots
@@ -571,7 +560,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
             }
         }
 
-        if (type == ACTIVE) {
+        if (cell == ACTIVE) {
             boolean encounteredMyeloma = false; // Track if a myeloma cell is encountered
             boolean agedDeath = false; // Track if the T cell is aged and should die
 
@@ -597,8 +586,8 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                         int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
                         int chosenCell = movdivHood[chosenIndex]; // Get the chosen empty cell
                         if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
-                            AgentLattice child = G.NewAgentSQ(chosenCell);
-                            child.type = this.type;
+                            AgentLattice child = G.NewAgentSQ(chosenCell).as(this.cell);
+
 
                             child.tcellAge = 0;
                             child.pd_1 = Math.floor(this.pd_1 / 4);
@@ -613,12 +602,12 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
 
                 // Transition to exhausted T cell if pd_l1 exceeds pd_1
                 if (this.pd_l1 > this.pd_1) {
-                    this.type = EXHAUSTED;
+                    this.cell = EXHAUSTED;
                     break;
                 } else {
                     // Killing logic
                     for (int j = 0; j < options; j++) {
-                        if (G.GetAgent(movdivHood[j]) != null && (G.GetAgent(movdivHood[j]).type == MYELOMA || G.GetAgent(movdivHood[j]).type == RESISTANT) && this.hours_since_kill >= 1) {
+                        if (G.GetAgent(movdivHood[j]) != null && (G.GetAgent(movdivHood[j]).cell == MYELOMA || G.GetAgent(movdivHood[j]).cell == RESISTANT) && this.hours_since_kill >= 1) {
                             if (this.TCE && !G.GetAgent(movdivHood[j]).BCMA) {
                                 ;
                             } else { // If the cells don't have TCE or have BCMA
@@ -636,7 +625,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                                     int chosenCell = movdivHood[chosenIndex]; // Get the chosen empty cell
                                     if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
                                         AgentLattice child = G.NewAgentSQ(chosenCell);
-                                        child.type = this.type;
+                                        child.cell = this.cell;
 
                                         child.tcellAge = 0;
                                         child.pd_1 = Math.floor(this.pd_1 / 4);
@@ -667,7 +656,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
         }
 
 
-        if (type == MYELOMA) {
+        if (cell == MYELOMA) {
             this.BCMA = true;
 
             //STEP 1: death
@@ -683,11 +672,12 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 int emptyNeighbors = MapEmptyHood(divHood);
                 //Create new Agent
                 if (emptyNeighbors > 0) {
+                    // TODO Filter usage
                     AgentLattice child = G.NewAgentSQ(divHood[G.rn.Int(emptyNeighbors)]);
                     if (G.rn.Double() < mutProb) {
-                        child.type = RESISTANT;
+                        child.cell = RESISTANT;
                     } else if (G.rn.Double() > mutProb) {
-                        child.type = MYELOMA;
+                        child.cell = MYELOMA;
                     }
 
 
@@ -695,7 +685,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
             }
         }
 
-        if (type == RESISTANT) {
+        if (cell == RESISTANT) {
             this.BCMA = false;
 
             //STEP 1: death
@@ -712,20 +702,20 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 //Create new Agent
                 if (emptyNeighbors > 0) {
                     AgentLattice child = G.NewAgentSQ(divHood[G.rn.Int(emptyNeighbors)]);
-                    child.type = this.type;
+                    child.cell = this.cell;
 
                 }
             }
 
         }
 
-        if (type == INACTIVE) {
+        if (cell == INACTIVE) {
             boolean agedDeath = false; //Tracking for aged Tcells
             if (G.timeStep % 24.0 == 0) {
                 this.tcellAge += 1;
             }
             if (G.TCE_ON) {
-                this.type = ACTIVE;
+                this.cell = ACTIVE;
             }
             for (int run = 0; run < 3; run++) {
                 double rn_BirthDeath = G.rn.Double();
@@ -740,7 +730,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                             int chosenCell = movdivHood[chosenIndex]; // Get the chosen empty cell
                             if (G.GetAgent(chosenCell) == null) { // Check if the chosen cell is still empty
                                 AgentLattice child = G.NewAgentSQ(chosenCell);
-                                child.type = this.type;
+                                child.cell = this.cell;
                                 child.tcellAge = 0;
                                 child.pd_1 = 0;
                                 child.pd_l1 = 0;
