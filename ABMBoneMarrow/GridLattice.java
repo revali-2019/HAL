@@ -3,7 +3,6 @@ package ABMBoneMarrow;
 import HAL.GridsAndAgents.AgentGrid2D;
 import HAL.GridsAndAgents.AgentSQ2Dunstackable;
 import HAL.GridsAndAgents.PDEGrid2D;
-import HAL.Gui.GifMaker;
 import HAL.Gui.UIGrid;
 import HAL.Gui.UILabel;
 import HAL.Gui.UIWindow;
@@ -22,6 +21,7 @@ import static HAL.Util.*;
 //////////////
 //GRID CLASS//
 //////////////
+
 
 enum CellType {
     ACTIVE(RGB256(17, 150, 150), 0),
@@ -53,6 +53,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     static final int xDim = 160;
     static final int yDim = 150;
 
+
     int timeStep = 0; // initial timestep
     final static double STEPS = (100 * 24.0); // timesteps in hours
     public final static int ITERATIONS = 5; // number of times the model will run
@@ -64,15 +65,16 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 //    public final static CellType LINING = new CellType(RGB256(64, 106, 151), 4);
 //    public final static CellType BONE = new CellType(RGB256(255, 255, 250), 5);
 //    public final static CellType RESISTANT = new CellType(RGB256(255, 0, 0), 6);
-    public static final int InitactiveTcells = 5; // initial number of active tcells
-    public static final int InitinactiveTcells = 1000; //initial number of inactive tcells
-    public static final int InitexhaustedTcells = 0; // initial number of exhausted tcells
-    final static int TCE_start = 30; // start day for treatment
+    public static final int InitactiveTcells = 25; // initial number of active tcells
+    public static final int InitinactiveTcells = 650; //initial number of inactive tcells
+    public static final int InitexhaustedTcells = 75; // initial number of exhausted tcells
+    final static int TCE_start = 10; // start day for treatment
     final static int TCE_Duration = 50; // duration (in days) of treatment
+    //TODO Fix resistant growth rate to be smaller,
     final static double Myeloma_PROLIFERATION_PROB = 1.0 / 24; //cancer cell division rate
 
     final static double Myeloma_DEATH_PROB = 1.0 / 72; // cancer cell apoptosis rate
-    final static double mutProb = 0.005; // probability that a myeloma cell will lose BCMA due to a mutation NOT CLINICALLY VERIFIED
+    final static double mutProb = 0.0001; // probability that a myeloma cell will lose BCMA due to a mutation NOT CLINICALLY VERIFIED
     public double T_CELL_DEATH_RATE = 1.0 / 24; // tcell death rate - used for exhausted tcells
     double CXCL9_productionRate = .1; // production of CXCL9
     double CXCL9_decayRate = -0.3; // decay of CXCL9
@@ -81,14 +83,12 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     double Tcell_TaxisCoeff = 3.0e9; // tcell movement towards CXCL9
     double Tcell_DiffCoef = 0.1 * 3.0; // diffusion coefficient for cd8 t-cells
 
-
-    static boolean TCE_ON = true; // switching on tce therapy
+    double[] cellCounts = new double[7];
+    boolean TCE_ON = true; // switching on tce therapy
 
     boolean preRes = true;
 
     double resFrac = 0;
-
-    double maxTCE = 30; // not using this yet
 
 
     public PDEGrid2D CXCL9; // pde grid for CXCL9
@@ -106,6 +106,8 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     ////////////////////
     //GRID CONSTRUCTOR//
     ////////////////////
+
+    //FIXME play around with bounds T Cell kill rate
     public double boundedGaussian(double mean, double dev, double min, double max) {
         double gauss = rn.Gaussian(0, 1);
         double val = dev * gauss + mean;
@@ -188,9 +190,6 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                 AgentLattice drawMe = GetAgent(x, y);
                 if (drawMe != null && drawMe.cell != null) {
                     vis.SetPix(x, y, drawMe.cell.rgbColor);
-                    if (drawMe.cell == INACTIVE) {
-                        //FIXME Check with local history if we deleted some code accidentally
-                    }
                 } else {
                     vis.SetPix(x, y, RGB256(240, 220, 220));
                 }
@@ -308,8 +307,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         String path_to_output_file = "";
 
         //Makes Gifs
-        GifMaker gm_Cell_vis = new GifMaker(output_dir.concat("/").concat("CellVid").concat(".gif"), 100, true);
-        GifMaker gm_CXCL9_vis = new GifMaker(output_dir.concat("/").concat("CXCL9Vid").concat(".gif"), 100, true);
+
 
 //        for (int j = 0; j < ITERATIONS; j++) {
         IntStream.range(0, ITERATIONS)
@@ -323,21 +321,27 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                             GridLattice g = new GridLattice();
                             g.generateFile(output_dir.concat("/").concat("CellCounts_" + j).concat(".csv"));
 
+//                            g.gm_Cell_vis = new GifMaker(output_dir.concat("/").concat("CellVid").concat(".gif"), 10, true);
+//                            g.gm_CXCL9_vis = new GifMaker(output_dir.concat("/").concat("CXCL9Vid").concat(".gif"), 10, true);
 
                             // OUTPUT WINDOW
                             UIGrid Cell_vis = new UIGrid(xDim, yDim, 4, 2, 5);
                             UIGrid CXCL9_vis = new UIGrid(xDim, yDim, 4, 2, 5);
                             UIWindow win = initWindow(Cell_vis, CXCL9_vis, j);
+                            String title = "Active: " + InitactiveTcells + ", Inactive: " + InitinactiveTcells + ", Exhausted: " + InitexhaustedTcells + ", Start: " + TCE_start + ", Duration " + TCE_Duration + ", Iteration " + (j + 1);
                             win.RunGui();
 
 
                             // TIME LOOP
                             for (int i = 0; i < STEPS; i++) {
+                                win.frame.setTitle(title + ", Day " + day);
+//                                g.gm_Cell_vis.AddFrame(Cell_vis);
+//                                g.gm_CXCL9_vis.AddFrame(CXCL9_vis);
                                 if (day >= TCE_start && day < TCE_start + TCE_Duration) { //Turn on TCE treatment if day is in treatment block
-                                    TCE_ON = true;
+                                    g.TCE_ON = true;
 
                                 } else {
-                                    TCE_ON = false;
+                                    g.TCE_ON = false;
                                 }
 
                                 g.timeStep = i;
@@ -412,16 +416,17 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                 // OTHER OUTPUT
                                 if (i % 24.0 == 0) {
                                     day += 1;
-                                    System.out.println("Day " + day);
+
                                     g.RecordOut(g.output, i / 24, cts);
                                 }
                             }
 
 
-                            System.out.println("Current Iteration: " + j);
+                            System.out.println("Iteration " + j);
+                            g.cellCounts = g.CellCounts();
+
                             g.output.Close();
-                            gm_Cell_vis.Close();
-                            gm_CXCL9_vis.Close();
+
                         }
                 );
 
@@ -581,6 +586,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 int emptyNeighbors = MapEmptyHood(movdivHood); // Mapping empty spots
 
                 // Age-related death logic
+                //FIXME Why is ave cell age this long
                 if (this.tcellAge == 720 && emptyNeighbors > 0) { // Assuming 720 hours is the lifespan (30 days)
                     for (int i = 0; i < emptyNeighbors; i++) {
                         int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
@@ -603,6 +609,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 // Transition to exhausted T cell if pd_l1 exceeds pd_1
                 if (this.pd_l1 > this.pd_1) {
                     this.cell = EXHAUSTED;
+                    System.out.println(this.pd_l1);
                     break;
                 } else {
                     // Killing logic
@@ -710,12 +717,14 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
         }
 
         if (cell == INACTIVE) {
+            //FIXME see if PDL1 should be reset when turning to active
             boolean agedDeath = false; //Tracking for aged Tcells
             if (G.timeStep % 24.0 == 0) {
                 this.tcellAge += 1;
             }
             if (G.TCE_ON) {
                 this.cell = ACTIVE;
+                this.pd_l1 = 0;
             }
             for (int run = 0; run < 3; run++) {
                 double rn_BirthDeath = G.rn.Double();
@@ -723,7 +732,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 int[] movdivHood = MooreHood(true); // for division and movement
                 int options = MapOccupiedHood(movdivHood); // mapping occupied spots
                 int emptyNeighbors = MapEmptyHood(movdivHood); // mapping empty spots
-                if (this.tcellAge == 30) {
+                if (this.tcellAge == 720) {
                     if (emptyNeighbors > 0) {
                         for (int i = 0; i < emptyNeighbors; i++) {
                             int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
