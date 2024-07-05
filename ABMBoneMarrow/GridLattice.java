@@ -3,6 +3,7 @@ package ABMBoneMarrow;
 import HAL.GridsAndAgents.AgentGrid2D;
 import HAL.GridsAndAgents.AgentSQ2Dunstackable;
 import HAL.GridsAndAgents.PDEGrid2D;
+import HAL.Gui.GifMaker;
 import HAL.Gui.UIGrid;
 import HAL.Gui.UILabel;
 import HAL.Gui.UIWindow;
@@ -11,7 +12,7 @@ import HAL.Tools.FileIO;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.stream.IntStream;
 
 import static ABMBoneMarrow.CellType.*;
@@ -22,68 +23,89 @@ import static HAL.Util.*;
 //GRID CLASS//
 //////////////
 
+//Records initial conditions for many different simulations
+record Experiments(int activeCount, int inactiveCount, int exhaustedCount, int start, int duration, int iterations) {
+}
+
 
 enum CellType {
-    ACTIVE(RGB256(17, 150, 150), 0),
-    INACTIVE(RGB256(255, 165, 0), 3),
-    EXHAUSTED(RGB256(200, 50, 250), 1),
-    MYELOMA(RGB256(47, 32, 66), 2),
-    RESISTANT(RGB256(255, 0, 0), 6),
-    LINING(RGB256(64, 106, 151), 4),
-    BONE(RGB256(255, 255, 250), 5),
+    ACTIVE(RGB256(17, 150, 150), 0, 1.0 / 24, 0),
+    INACTIVE(RGB256(255, 165, 0), 3, 1.0 / 24, 0),
+    EXHAUSTED(RGB256(200, 50, 250), 1, 1.0 / 24, 0),
+    MYELOMA(RGB256(47, 32, 66), 2, 1.0 / 72, 1.0 / 24),
+    RESISTANT(RGB256(255, 0, 0), 6, 1.0 / 72, 1.0 / 24 * 0.9), // 90% of Myeloma division rate
+    LINING(RGB256(64, 106, 151), 4, 0, 0),
+    BONE(RGB256(255, 255, 250), 5, 0, 0),
     DEFAULT;
 
     int rgbColor;
     int index;
 
+    double deathProb;
 
-    CellType(int color, int index) {
+    double divProb;
+
+
+    CellType(int color, int index, double deathProb, double divProb) {
         this.rgbColor = color;
         this.index = index;
+        this.deathProb = deathProb;
+        this.divProb = divProb;
     }
 
     CellType() {
         this.rgbColor = RGB256(0, 0, 0);
         this.index = -999;
+        this.deathProb = 0;
+        this.divProb = 0;
     }
 }
 
 class GridLattice extends AgentGrid2D<AgentLattice> {
 
-    static final int xDim = 160;
-    static final int yDim = 150;
-
-
+    static final int xDim, yDim, DAYS, STEPS;
     int timeStep = 0; // initial timestep
-    final static double STEPS = (100 * 24.0); // timesteps in hours
-    public final static int ITERATIONS = 5; // number of times the model will run
-    public final static boolean VISUALS = true; // turns on/off visualizations for the model
-    //    public final static CellType ACTIVE = new CellType(RGB256(17, 150, 150), 0);
-//    public final static CellType EXHAUSTED = new CellType(RGB256(200, 50, 250), 1);
-//    public final static CellType MYELOMA = new CellType(RGB256(47, 32, 66), 2);
-//    public final static CellType INACTIVE = new CellType(RGB256(255, 165, 0), 3);
-//    public final static CellType LINING = new CellType(RGB256(64, 106, 151), 4);
-//    public final static CellType BONE = new CellType(RGB256(255, 255, 250), 5);
-//    public final static CellType RESISTANT = new CellType(RGB256(255, 0, 0), 6);
-    public static final int InitactiveTcells = 25; // initial number of active tcells
-    public static final int InitinactiveTcells = 650; //initial number of inactive tcells
-    public static final int InitexhaustedTcells = 75; // initial number of exhausted tcells
-    final static int TCE_start = 10; // start day for treatment
-    final static int TCE_Duration = 50; // duration (in days) of treatment
-    //TODO Fix resistant growth rate to be smaller,
-    final static double Myeloma_PROLIFERATION_PROB = 1.0 / 24; //cancer cell division rate
 
-    final static double Myeloma_DEATH_PROB = 1.0 / 72; // cancer cell apoptosis rate
-    final static double mutProb = 0.0001; // probability that a myeloma cell will lose BCMA due to a mutation NOT CLINICALLY VERIFIED
+    public final static boolean VISUALS; // turns on/off visualizations for the model
+
+    static {
+        experimentsList = Arrays.asList(
+                new Experiments(1, 2, 3, 4, 5, 5),
+                new Experiments(1, 2, 3, 4, 5, 5),
+                new Experiments(1, 2, 3, 4, 5, 5),
+                new Experiments(1, 2, 3, 4, 5, 5),
+                new Experiments(1, 2, 3, 4, 5, 5)
+        );
+        xDim = 160;
+        yDim = 150;
+        DAYS = 450;
+        STEPS = DAYS * 24;
+        VISUALS = true;
+    }
+    //TODO THE ACTIVATION PROBLEM HAS SOMETHING TO DO WITH TIMESTEP BECOMING 1
+
+    public final static int ITERATIONS = 10; // number of times the model will run
+    public static final int InitactiveTcells = 0; // initial number of active tcells
+    public static final int InitinactiveTcells = 500; //initial number of inactive tcells
+    public static final int InitexhaustedTcells = 0; // initial number of exhausted tcells
+    final static int TCE_start = 5; // start day for treatment
+
+    final static int TCE_Duration = 50; // duration (in days) of treatment
+
+
+    //TODO Fix resistant growth rate to be smaller,
+    final static double mutProb = 0.0005; // probability that a myeloma cell will lose BCMA due to a mutation NOT CLINICALLY VERIFIED
     public double T_CELL_DEATH_RATE = 1.0 / 24; // tcell death rate - used for exhausted tcells
+
+
     double CXCL9_productionRate = .1; // production of CXCL9
     double CXCL9_decayRate = -0.3; // decay of CXCL9
     double CXCL9_DiffCoef = 2.5; // diffusion coefficient for CXCL9
     double maxCXCL9 = 1.7; // used for numerical stability
     double Tcell_TaxisCoeff = 3.0e9; // tcell movement towards CXCL9
+
     double Tcell_DiffCoef = 0.1 * 3.0; // diffusion coefficient for cd8 t-cells
 
-    double[] cellCounts = new double[7];
     boolean TCE_ON = true; // switching on tce therapy
 
     boolean preRes = true;
@@ -91,6 +113,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
     double resFrac = 0;
 
 
+    public double[] cellCounts = new double[7];
     public PDEGrid2D CXCL9; // pde grid for CXCL9
 
     public PDEGrid2D TCE; // TCE distribution pde grid
@@ -100,14 +123,16 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
     public Rand rn = new Rand();
 
+    public static List<Experiments> experimentsList;
+
 
     FileIO output;
-
     ////////////////////
     //GRID CONSTRUCTOR//
-    ////////////////////
 
+    ////////////////////
     //FIXME play around with bounds T Cell kill rate
+
     public double boundedGaussian(double mean, double dev, double min, double max) {
         double gauss = rn.Gaussian(0, 1);
         double val = dev * gauss + mean;
@@ -134,7 +159,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
         super(GridLattice.xDim, GridLattice.yDim, AgentLattice.class, true, true);
 
-        CXCL9 = new PDEGrid2D(xDim, yDim, true, true); //This assumes PERIODIC BOUNDARY CONDITION (wrapX=TRUE,wrapY=TRUE)
+        CXCL9 = new PDEGrid2D(xDim, yDim, false, false); //This assumes PERIODIC BOUNDARY CONDITION (wrapX=TRUE,wrapY=TRUE)
 
         double totalArea = xDim * yDim;
         double blackBoxArea = 0.129 * totalArea;
@@ -180,10 +205,10 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
             }
         }
     }
-
     ////////////////
     //GRID METHODS//
     ////////////////
+
     public void Draw(UIGrid vis) {
         for (int x = 0; x < xDim; x++) {
             for (int y = 0; y < yDim; y++) {
@@ -290,6 +315,21 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         output.Write("Time,TCELLS, EXTCELLS, MYELOMA, Inactive Tcells, CXCL9, Bone, Resistant" + "\n");
     }
 
+
+    void printCellPopulation() {
+        Map<CellType, Integer> cells = new HashMap<>();
+        for (CellType type : CellType.values()) {
+            cells.put(type, 0);
+        }
+        for (AgentLattice a : this) {
+
+            cells.put(a.cell, cells.get(a.cell) + 1);
+
+        }
+        System.out.println(cells);
+        System.out.println(timeStep);
+    }
+
     /**
      * Visualization of tumor microenvironment for a certain number of iterations.
      * 1. Active T Cells
@@ -306,10 +346,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         String output_dir = makeOutputPath();
         String path_to_output_file = "";
 
-        //Makes Gifs
 
-
-//        for (int j = 0; j < ITERATIONS; j++) {
         IntStream.range(0, ITERATIONS)
                 .parallel()
                 .forEach(j -> {
@@ -321,8 +358,8 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                             GridLattice g = new GridLattice();
                             g.generateFile(output_dir.concat("/").concat("CellCounts_" + j).concat(".csv"));
 
-//                            g.gm_Cell_vis = new GifMaker(output_dir.concat("/").concat("CellVid").concat(".gif"), 10, true);
-//                            g.gm_CXCL9_vis = new GifMaker(output_dir.concat("/").concat("CXCL9Vid").concat(".gif"), 10, true);
+                            GifMaker gm_Cell_vis = new GifMaker(output_dir.concat("/").concat("CellVid_" + j).concat(".gif"), 10, true);
+                            GifMaker gm_CXCL9_vis = new GifMaker(output_dir.concat("/").concat("CXCL9Vid_" + j).concat(".gif"), 10, true);
 
                             // OUTPUT WINDOW
                             UIGrid Cell_vis = new UIGrid(xDim, yDim, 4, 2, 5);
@@ -334,9 +371,12 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
                             // TIME LOOP
                             for (int i = 0; i < STEPS; i++) {
+                                if (i % 48 == 0) {
+                                    gm_Cell_vis.AddFrame(Cell_vis);
+                                    gm_CXCL9_vis.AddFrame(CXCL9_vis);
+                                }
                                 win.frame.setTitle(title + ", Day " + day);
-//                                g.gm_Cell_vis.AddFrame(Cell_vis);
-//                                g.gm_CXCL9_vis.AddFrame(CXCL9_vis);
+//
                                 if (day >= TCE_start && day < TCE_start + TCE_Duration) { //Turn on TCE treatment if day is in treatment block
                                     g.TCE_ON = true;
 
@@ -347,7 +387,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                 g.timeStep = i;
 
                                 if (VISUALS) {
-                                    win.TickPause(0); //slows or speeds up the video frame rate
+                                    win.TickPause(10); //slows or speeds up the video frame rate
                                 }
                                 // COUNT CURRENT POPULATION
                                 //
@@ -422,7 +462,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                             }
 
 
-                            System.out.println("Iteration " + j);
+//                            System.out.println("Iteration " + j);
                             g.cellCounts = g.CellCounts();
 
                             g.output.Close();
@@ -537,8 +577,10 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
     }
 
     public void TCE_Attach() { //Assume even distribution of TCEs
+        double r = G.rn.Double();
 
-        if (G.TCE_ON && this.cell == INACTIVE) {
+        if (G.TCE_ON && this.cell == INACTIVE && r < 0.01) {
+//            G.printCellPopulation();
             this.cell = ACTIVE;
             this.TCE = true;
         }
@@ -552,7 +594,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
             int[] movdivHood = MooreHood(true); // for division and movement
             int emptyNeighbors = MapEmptyHood(movdivHood); // mapping empty spots
             double rn_BirthDeath = G.rn.Double();
-            double pdiv = G.T_CELL_DEATH_RATE;
+            double pdeath = G.T_CELL_DEATH_RATE;
             if (emptyNeighbors > 0) {
                 int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
                 int chosenCell = movdivHood[chosenIndex]; // Get the chosen empty cell
@@ -560,7 +602,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                     MoveSQ(chosenCell);
                 }
             }
-            if (rn_BirthDeath < ProbScale(pdiv, 1.0 / 24)) {
+            if (rn_BirthDeath < ProbScale(pdeath, 1.0 / 24)) {
                 this.Dispose();
             }
         }
@@ -586,7 +628,6 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 int emptyNeighbors = MapEmptyHood(movdivHood); // Mapping empty spots
 
                 // Age-related death logic
-                //FIXME Why is ave cell age this long
                 if (this.tcellAge == 720 && emptyNeighbors > 0) { // Assuming 720 hours is the lifespan (30 days)
                     for (int i = 0; i < emptyNeighbors; i++) {
                         int chosenIndex = G.rn.Int(emptyNeighbors); // Randomly choose an empty cell index
@@ -609,7 +650,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                 // Transition to exhausted T cell if pd_l1 exceeds pd_1
                 if (this.pd_l1 > this.pd_1) {
                     this.cell = EXHAUSTED;
-                    System.out.println(this.pd_l1);
+
                     break;
                 } else {
                     // Killing logic
@@ -667,14 +708,14 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
             this.BCMA = true;
 
             //STEP 1: death
-            if (G.rn.Double() < ProbScale(G.Myeloma_DEATH_PROB, 1)) {
+            if (G.rn.Double() < ProbScale(MYELOMA.deathProb, 1)) {
                 Dispose();
                 return;
             }
 
 
             //STEP 2: division
-            if (G.rn.Double() < ProbScale(G.Myeloma_PROLIFERATION_PROB, 1)) {
+            if (G.rn.Double() < ProbScale(MYELOMA.divProb, 1)) {
                 int[] divHood = MooreHood(true);
                 int emptyNeighbors = MapEmptyHood(divHood);
                 //Create new Agent
@@ -696,14 +737,14 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
             this.BCMA = false;
 
             //STEP 1: death
-            if (G.rn.Double() < ProbScale(G.Myeloma_DEATH_PROB, 1)) {
+            if (G.rn.Double() < ProbScale(RESISTANT.deathProb, 1)) {
                 Dispose();
                 return;
             }
 
 
             //STEP 2: division
-            if (G.rn.Double() < ProbScale(G.Myeloma_PROLIFERATION_PROB, 1)) {
+            if (G.rn.Double() < ProbScale(RESISTANT.divProb, 1)) {
                 int[] divHood = MooreHood(true);
                 int emptyNeighbors = MapEmptyHood(divHood);
                 //Create new Agent
@@ -717,15 +758,12 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
         }
 
         if (cell == INACTIVE) {
-            //FIXME see if PDL1 should be reset when turning to active
             boolean agedDeath = false; //Tracking for aged Tcells
             if (G.timeStep % 24.0 == 0) {
                 this.tcellAge += 1;
             }
-            if (G.TCE_ON) {
-                this.cell = ACTIVE;
-                this.pd_l1 = 0;
-            }
+
+
             for (int run = 0; run < 3; run++) {
                 double rn_BirthDeath = G.rn.Double();
                 //double pdiv = G.T_CELL_DIV_RATE;
