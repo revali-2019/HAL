@@ -348,7 +348,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
         experiments.keySet()
                 .stream()
-//                .parallel()
+                .parallel()
                 .forEach(e -> {
                     IntStream.range(0, e.iterations())
                             .parallel()
