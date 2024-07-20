@@ -6,6 +6,7 @@
 !*/*/*/*/*/
 !*.java
 !HAL/lib/*
+!HAL/ABMBoneMarrow/src
 # only allow scource files
 #!HAL/**.java
 #!LEARN_HERE/**.java
