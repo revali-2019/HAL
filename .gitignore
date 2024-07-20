@@ -6,7 +6,12 @@
 !*/*/*/*/*/
 !*.java
 !HAL/lib/*
-!HAL/ABMBoneMarrow/src/data_analysis.py
+# !HAL/ABMBoneMarrow/src/data_analysis.py
+!ABMBoneMarrow/src/*
+ABMBoneMarrow/.DS_Store
+ABMBoneMarrow/*.gif
+ABMBoneMarrow/*.zip
+
 # only allow scource files
 #!HAL/**.java
 #!LEARN_HERE/**.java
