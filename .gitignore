@@ -8,9 +8,11 @@
 !HAL/lib/*
 # !HAL/ABMBoneMarrow/src/data_analysis.py
 !ABMBoneMarrow/src/*
+!ABMBoneMarrow/src/requirements.txt
 ABMBoneMarrow/.DS_Store
 ABMBoneMarrow/*.gif
 ABMBoneMarrow/*.zip
+
 
 # only allow scource files
 #!HAL/**.java
