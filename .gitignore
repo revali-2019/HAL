@@ -6,7 +6,7 @@
 !*/*/*/*/*/
 !*.java
 !HAL/lib/*
-!HAL/ABMBoneMarrow/src
+!HAL/ABMBoneMarrow/src/data_analysis.py
 # only allow scource files
 #!HAL/**.java
 #!LEARN_HERE/**.java
