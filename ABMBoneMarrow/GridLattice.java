@@ -26,7 +26,8 @@ import static HAL.Util.*;
 //////////////
 
 //Records initial conditions for many different simulations
-record Experiment(int run, int activeCount, int inactiveCount, int exhaustedCount, int tceStart, int tceDuration,
+record Experiment(int activeCount, int inactiveCount, int exhaustedCount, int myelomaCount, int tceStart,
+                  int tceDuration,
                   int iterations) {
 }
 
@@ -35,7 +36,7 @@ enum CellType {
     ACTIVE(RGB256(17, 150, 150), 0, 1.0 / 24, 0, 3.0e9, 0.1 * 3.0, 0),
     INACTIVE(RGB256(255, 165, 0), 3, 1.0 / 24, 0, 0, 0, 0),
     EXHAUSTED(RGB256(200, 50, 250), 1, 1.0 / 24, 0, 0, 0, 0),
-    MYELOMA(RGB256(47, 32, 66), 2, 1.0 / 72, 1.0 / 24, 0, 0, 0.0005),
+    MYELOMA(RGB256(47, 32, 66), 2, 1.0 / 72, 1.0 / 24, 0, 0, 0.0008),
     RESISTANT(RGB256(255, 0, 0), 6, 1.0 / 72, 1.0 / 24 * 0.9, 0, 0, 0), // 90% of Myeloma division rate
     LINING(RGB256(64, 106, 151), 4, 0, 0, 0, 0, 0),
     BONE(RGB256(255, 255, 250), 5, 0, 0, 0, 0, 0),
@@ -104,7 +105,8 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
     static {
         experimentsList = Arrays.asList(
-                new Experiment(1, 25, 500, 0, 10, 15, 8)
+//                new Experiment(145, 38, 83, 1500, 0, 20, 10)
+                new Experiment(50, 100, 50, 1000, 0, 200, 12)
         );
         xDim = 160;
         yDim = 150;
@@ -129,8 +131,8 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
 
     ////////////////////
     //GRID CONSTRUCTOR//
-
     ////////////////////
+
     //FIXME play around with bounds T Cell kill rate
 
     public double boundedGaussian(double mean, double dev, double min, double max) {
@@ -155,7 +157,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         return x >= minX && x <= maxX && y >= minY && y <= maxY;
     }
 
-    public GridLattice() {
+    public GridLattice(int myelomaCount) {
 
         super(GridLattice.xDim, GridLattice.yDim, AgentLattice.class, true, true);
 
@@ -174,19 +176,19 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         int startY = centerY - sideLength / 2;
 
         instantiateBoneCells(startX, startY, sideLength);
-        instantiateMyelomaCells(startX, startY, sideLength);
+        instantiateMyelomaCells(startX, startY, sideLength, myelomaCount);
 
         this.timeStep = 0;
     }
 
-    private void instantiateMyelomaCells(int startX, int startY, int sideLength) {
-        for (int i = 0; i < 500; i++) {
+    private void instantiateMyelomaCells(int startX, int startY, int sideLength, int myelomaCount) {
+        for (int i = 0; i < myelomaCount; i++) {
             // Recruit one myeloma cell within 10 grid spaces from the bone
             int myelomaX, myelomaY;
             do {
                 myelomaX = rn.Int(xDim);
                 myelomaY = rn.Int(yDim);
-            } while (!isWithinDistanceFromBone(myelomaX, myelomaY, startX, startY, sideLength, 5) || PopAt(myelomaX, myelomaY) > 0);
+            } while (!isWithinDistanceFromBone(myelomaX, myelomaY, startX, startY, sideLength, 8) || PopAt(myelomaX, myelomaY) > 0);
 
             AgentLattice c = NewAgentSQ(myelomaX, myelomaY).as(MYELOMA);
 
@@ -290,7 +292,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
         // PATHS
         String projPath = "ABMBoneMarrow";
         //Save in folder format "initActiveTCells_initInactiveTCell_initExhaustedTcell"
-        String setting_dir = projPath + "/output/" + "/" + "run:" + e.run() + "act:" + e.activeCount() + "_in:" + e.inactiveCount() + "_ex:" + e.exhaustedCount() + "_start:" + e.tceStart() + "_duration:" + e.tceDuration();
+        String setting_dir = projPath + "/output/" + "act:" + e.activeCount() + "_in:" + e.inactiveCount() + "_ex:" + e.exhaustedCount() + "_start:" + e.tceStart() + "_duration:" + e.tceDuration();
         // CREATE OUTPUT DIR
         new File(setting_dir).mkdirs();
         String output_dir = setting_dir;
@@ -358,12 +360,12 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                 var outputDir = experiments.get(e);
 
                                 // GRID
-                                GridLattice g = new GridLattice();
+                                GridLattice g = new GridLattice(e.myelomaCount());
                                 g.generateFiles(outputDir, i);
 
                                 // OUTPUT WINDOW
                                 UIWindow win = initWindow(g.Cell_vis, g.CXCL9_vis, i, e);
-                                String title = "Run: " + e.run() + ", Active: " + e.activeCount() + ", Inactive: " + e.inactiveCount() + ", Exhausted: " + e.exhaustedCount() + ", Start: " + e.tceStart() + ", Duration " + e.tceDuration() + ", Iteration " + (i + 1);
+                                String title = "Active: " + e.activeCount() + ", Inactive: " + e.inactiveCount() + ", Exhausted: " + e.exhaustedCount() + ", Start: " + e.tceStart() + ", Duration " + e.tceDuration() + ", Iteration " + (i + 1);
                                 win.RunGui();
                                 // TIME LOOP
                                 for (int t = 0; t < STEPS; t++) {
@@ -383,7 +385,7 @@ class GridLattice extends AgentGrid2D<AgentLattice> {
                                     //
                                     double[] cts = g.CellCounts();
 
-                                    if (cts[MYELOMA.index] >= 500) { //recruiting tcells (if number of myeloma cells >= 500)
+                                    if (cts[MYELOMA.index] >= e.myelomaCount()) { //recruiting tcells (if number of myeloma cells >= 1500)
                                         if (initial_recruitment) {
                                             g.recruitCells(ACTIVE, e.activeCount());
                                         }
@@ -542,7 +544,7 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
     public void attachTCE() { //Assume even distribution of TCEs
         double r = G.rn.Double();
 
-        if (G.TCE_ON && this.cell.is(INACTIVE) && r < 0.01) {
+        if (G.TCE_ON && this.cell.is(INACTIVE) && r < 0.005) {
 //            G.printCellPopulation();
             this.cell = ACTIVE;
             this.TCE = true;
@@ -572,11 +574,11 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
 
         if (cell.is(ACTIVE)) {
             boolean encounteredMyeloma = false; // Track if a myeloma cell is encountered
-            boolean agedDeath = false; // Track if the T cell is aged and should die
+
 
             // Initialize pd_1 value if the T cell is newly created
             if (this.tcellAge == 0) {
-                this.pd_1 = G.boundedGaussian(10, 5, 5, 20);
+                this.pd_1 = G.boundedGaussian(10, 5, 0, 20);
             }
 
 
@@ -620,12 +622,11 @@ class AgentLattice extends AgentSQ2Dunstackable<GridLattice> {
                     for (int j = 0; j < options; j++) {
                         if (G.GetAgent(movdivHood[j]) != null && (G.GetAgent(movdivHood[j]).cell.is(MYELOMA) || G.GetAgent(movdivHood[j]).cell.is(RESISTANT)) && this.hours_since_kill >= 1) {
                             if (this.TCE && !G.GetAgent(movdivHood[j]).BCMA) {
-                                ;
-                            } else { // If the cells don't have TCE or have BCMA
+                                ;//FIXME tcell kill logic
+                            } else if (G.rn.Double() > 0.5) { // If the cells don't have TCE or have BCMA
                                 G.GetAgent(movdivHood[j]).Tcell_Kill();
-
-                                this.pd_l1 += 0.5;
                                 this.hours_since_kill = 0; // Reset kill timer
+                                this.pd_l1 += 0.5;
                             }
 
 
